@@ -15,12 +15,15 @@ try {
 const port = process.env.PORT || 3000;
 
 // Initialize Stripe with secret key from env (use test secret for development)
-const stripeSecret = process.env.STRIPE_SECRET_KEY || '';
+const stripeSecret = process.env.STRIPE_SECRET_KEY || process.env.STRIPE_SECRET || '';
 let stripe = null;
-if (stripeSecret) {
+if (stripeSecret && Stripe) {
     stripe = new Stripe(stripeSecret, { apiVersion: '2023-08-16' });
+    console.log('✅ Stripe initialized successfully');
+} else if (!Stripe) {
+    console.warn('Stripe module not installed. Install with: npm install stripe');
 } else {
-    console.warn('STRIPE_SECRET_KEY not set. Stripe routes will fail until configured.');
+    console.warn('STRIPE_SECRET_KEY or STRIPE_SECRET not set. Stripe routes will fail until configured.');
 }
 
 // --- Firebase Initialization ---

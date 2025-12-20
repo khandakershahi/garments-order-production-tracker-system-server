@@ -61,18 +61,21 @@ app.use(cors(corsOptions));
 // =================================================================
 
 const verifyFBToken = async (req, res, next) => {
-    console.log("header in the middleware", req.headers?.authorization);
+    console.log("=== verifyFBToken middleware called ===");
+    console.log("Authorization header:", req.headers?.authorization?.substring(0, 50) + "...");
     const token = req.headers.authorization;
     if (!token) {
+        console.log("❌ No token provided");
         return res.status(401).send({ message: "Unauthorized access" });
     }
     try {
         const idToken = token.split(" ")[1];
         const decoded = await admin.auth().verifyIdToken(idToken);
-        console.log("decoded token", decoded);
+        console.log("✅ Token verified. Decoded email:", decoded.email);
         req.decoded_email = decoded.email;
         next();
     } catch (error) {
+        console.log("❌ Token verification failed:", error.message);
         return res.status(401).send({ message: "unauthorized access" });
     }
 };
@@ -430,6 +433,188 @@ app.get('/manager/orders', verifyFBToken, verifyManager, async (req, res) => {
     }
 });
 
+// =================================================================
+// STATS API ROUTES (Must come BEFORE /orders/:id)
+// =================================================================
+
+// GET /orders/stats?email=user@example.com -> Returns user-specific order statistics grouped by status
+app.get('/orders/stats', verifyFBToken, async (req, res) => {
+    try {
+        const email = req.query.email;
+        console.log('GET /orders/stats called with email:', email);
+
+        if (!email) {
+            console.log('Error: Email query parameter missing');
+            return res.status(400).send({ message: 'Email query parameter is required' });
+        }
+
+        // Ensure requester is asking for their own stats
+        if (req.decoded_email !== email) {
+            console.log('Error: Email mismatch. Decoded:', req.decoded_email, 'Requested:', email);
+            return res.status(403).send({ message: 'Forbidden: Cannot access other users statistics' });
+        }
+
+        const { orderCollection } = await getCollections();
+        console.log('Successfully got orderCollection');
+
+        const stats = await orderCollection.aggregate([
+            {
+                $match: { userEmail: email }
+            },
+            {
+                $group: {
+                    _id: "$orderStatus",
+                    count: { $sum: 1 }
+                }
+            }
+        ]).toArray();
+
+        console.log('Raw stats from DB:', stats);
+
+        // Convert array to object with camelCase keys
+        const result = {};
+        stats.forEach(stat => {
+            const status = stat._id;
+            // Convert status to camelCase: "In Production" -> "inProduction", "Pending" -> "pending"
+            const parts = status.split(' ');
+            const camelCaseKey = parts.map((part, index) => 
+                index === 0 ? part.toLowerCase() : part.charAt(0).toUpperCase() + part.slice(1).toLowerCase()
+            ).join('');
+            
+            result[camelCaseKey] = stat.count;
+        });
+
+        console.log('Sending result:', result);
+        res.send(result);
+    } catch (error) {
+        console.error('Error in /orders/stats GET:', error.message);
+        console.error('Full error:', error);
+        res.status(500).send({ message: 'Internal server error', error: error.message });
+    }
+});
+
+// GET /orders/status/stats -> Admin endpoint to get order statistics by status
+app.get('/orders/status/stats', verifyFBToken, verifyAdmin, async (req, res) => {
+    try {
+        const { orderCollection } = await getCollections();
+        
+        const stats = await orderCollection.aggregate([
+            {
+                $group: {
+                    _id: "$orderStatus",
+                    count: { $sum: 1 }
+                }
+            },
+            {
+                $sort: { count: -1 }
+            }
+        ]).toArray();
+
+        res.send(stats);
+    } catch (error) {
+        console.error('Error in /orders/status/stats GET:', error.message);
+        res.status(500).send({ message: 'Internal server error' });
+    }
+});
+
+// GET /orders/delivery-status/stats -> Manager endpoint for delivery status statistics
+app.get('/orders/delivery-status/stats', verifyFBToken, verifyManager, async (req, res) => {
+    try {
+        const { orderCollection } = await getCollections();
+        
+        // Get stats for delivery-related statuses
+        const stats = await orderCollection.aggregate([
+            {
+                $match: {
+                    orderStatus: { $in: ["Approved", "In Production", "Shipped", "Delivered"] }
+                }
+            },
+            {
+                $group: {
+                    _id: "$orderStatus",
+                    count: { $sum: 1 }
+                }
+            },
+            {
+                $sort: { count: -1 }
+            }
+        ]).toArray();
+
+        res.send(stats);
+    } catch (error) {
+        console.error('Error in /orders/delivery-status/stats GET:', error.message);
+        res.status(500).send({ message: 'Internal server error' });
+    }
+});
+
+// GET /manager/orders/count -> Manager endpoint to get count of orders by key statuses
+app.get('/manager/orders/count', verifyFBToken, verifyManager, async (req, res) => {
+    try {
+        const { orderCollection } = await getCollections();
+        
+        const stats = await orderCollection.aggregate([
+            {
+                $group: {
+                    _id: "$orderStatus",
+                    count: { $sum: 1 }
+                }
+            }
+        ]).toArray();
+
+        // Convert to camelCase object format
+        const result = {};
+        stats.forEach(stat => {
+            const status = stat._id;
+            const parts = status.split(' ');
+            const camelCaseKey = parts.map((part, index) => 
+                index === 0 ? part.toLowerCase() : part.charAt(0).toUpperCase() + part.slice(1).toLowerCase()
+            ).join('');
+            
+            result[camelCaseKey] = stat.count;
+        });
+
+        res.send(result);
+    } catch (error) {
+        console.error('Error in /manager/orders/count GET:', error.message);
+        res.status(500).send({ message: 'Internal server error' });
+    }
+});
+
+// GET /payments/stats -> Admin endpoint to get payment statistics
+app.get('/payments/stats', verifyFBToken, verifyAdmin, async (req, res) => {
+    try {
+        const { orderCollection } = await getCollections();
+        
+        // Get payment statistics grouped by payment method
+        const stats = await orderCollection.aggregate([
+            {
+                $match: {
+                    paymentMethod: { $exists: true, $ne: null }
+                }
+            },
+            {
+                $group: {
+                    _id: "$paymentMethod",
+                    amount: { $sum: "$totalPrice" },
+                    count: { $sum: 1 }
+                }
+            },
+            {
+                $sort: { amount: -1 }
+            }
+        ]).toArray();
+
+        res.send(stats);
+    } catch (error) {
+        console.error('Error in /payments/stats GET:', error.message);
+        res.status(500).send({ message: 'Internal server error' });
+    }
+});
+
+// =================================================================
+// ORDERS API - PARAMETERIZED ROUTES (Must come AFTER specific routes)
+// =================================================================
+
 // GET /orders/:id -> Returns single order details, only owner can access
 app.get('/orders/:id', verifyFBToken, async (req, res) => {
     try {
@@ -552,7 +737,6 @@ app.patch('/orders/:id/approve', verifyFBToken, verifyManager, async (req, res) 
         res.status(500).send({ message: 'Internal server error' });
     }
 });
-
 
 // =================================================================
 //  USER API (No Changes)

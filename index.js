@@ -921,6 +921,52 @@ app.patch('/orders/:id/approve', verifyFBToken, verifyManager, async (req, res) 
     }
 });
 
+// PATCH /orders/:id/reject -> Manager rejects an order. Restores inventory if it was deducted.
+app.patch('/orders/:id/reject', verifyFBToken, verifyManager, async (req, res) => {
+    try {
+        const { orderCollection, productCollection } = await getCollections();
+        const id = req.params.id;
+
+        if (!ObjectId.isValid(id)) return res.status(400).send({ message: 'Invalid order id' });
+
+        const order = await orderCollection.findOne({ _id: new ObjectId(id) });
+        if (!order) return res.status(404).send({ message: 'Order not found' });
+
+        if (order.orderStatus === 'Rejected') {
+            return res.status(400).send({ message: 'Order is already rejected' });
+        }
+
+        if (order.orderStatus === 'Approved') {
+            return res.status(400).send({ message: 'Cannot reject an already approved order' });
+        }
+
+        // If inventory was deducted for this order, restore it back
+        if (order.inventoryDeducted && order.productId && ObjectId.isValid(order.productId)) {
+            const needed = Number(order.orderQuantity || 0);
+            await productCollection.updateOne(
+                { _id: new ObjectId(order.productId) },
+                { $inc: { availableQuantity: needed } }
+            );
+        }
+
+        // Mark order as rejected
+        const update = {
+            $set: {
+                orderStatus: 'Rejected',
+                rejectedAt: new Date(),
+                rejectedBy: req.decoded_email,
+                inventoryDeducted: false,
+            },
+        };
+
+        const result = await orderCollection.updateOne({ _id: new ObjectId(id) }, update);
+        res.send({ modifiedCount: result.modifiedCount });
+    } catch (error) {
+        console.error('Error in /orders/:id/reject PATCH:', error.message);
+        res.status(500).send({ message: 'Internal server error' });
+    }
+});
+
 // PATCH /orders/:id/delivery-status -> Manager updates delivery status
 app.patch('/orders/:id/delivery-status', verifyFBToken, verifyManager, async (req, res) => {
     try {

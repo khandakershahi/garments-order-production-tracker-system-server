@@ -37,7 +37,12 @@ if (process.env.FB_SERVICE_KEY) {
     serviceAccount = JSON.parse(decoded);
 } else {
     // Fallback to local file for development
-    serviceAccount = require("./garments-firebase-adminsdk.json");
+    try {
+        serviceAccount = require("./garments-firebase-adminsdk.json");
+    } catch (error) {
+        console.error("Firebase service account not found. Set FB_SERVICE_KEY environment variable or add garments-firebase-adminsdk.json file.");
+        throw new Error("Firebase credentials missing");
+    }
 }
 
 admin.initializeApp({
@@ -1273,12 +1278,19 @@ app.patch("/users/:id/unsuspend", verifyFBToken, verifyAdmin, async (req, res) =
 // =================================================================
 // --- SERVER STARTUP ---
 // =================================================================
+// --- SERVER STARTUP ---
+// =================================================================
 
-app.listen(port, () => {
-    console.log(`Garment Order Tracker backend listening on port ${port}`)
-})
+// Only listen on port in local development (not on Vercel)
+if (process.env.NODE_ENV !== 'production') {
+    app.listen(port, () => {
+        console.log(`Garment Order Tracker backend listening on port ${port}`)
+    });
+    connectToMongo().catch(console.dir);
+}
 
-connectToMongo().catch(console.dir);
+// Export for Vercel serverless
+module.exports = app;
 
 // =================================================================
 // Stripe Test Payment Endpoint

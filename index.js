@@ -64,21 +64,16 @@ app.use(cors(corsOptions));
 // =================================================================
 
 const verifyFBToken = async (req, res, next) => {
-    console.log("=== verifyFBToken middleware called ===");
-    console.log("Authorization header:", req.headers?.authorization?.substring(0, 50) + "...");
     const token = req.headers.authorization;
     if (!token) {
-        console.log("❌ No token provided");
         return res.status(401).send({ message: "Unauthorized access" });
     }
     try {
         const idToken = token.split(" ")[1];
         const decoded = await admin.auth().verifyIdToken(idToken);
-        console.log("✅ Token verified. Decoded email:", decoded.email);
         req.decoded_email = decoded.email;
         next();
     } catch (error) {
-        console.log("❌ Token verification failed:", error.message);
         return res.status(401).send({ message: "unauthorized access" });
     }
 };
@@ -627,21 +622,17 @@ app.get('/manager/orders', verifyFBToken, verifyManager, async (req, res) => {
 app.get('/orders/stats', verifyFBToken, async (req, res) => {
     try {
         const email = req.query.email;
-        console.log('GET /orders/stats called with email:', email);
 
         if (!email) {
-            console.log('Error: Email query parameter missing');
             return res.status(400).send({ message: 'Email query parameter is required' });
         }
 
         // Ensure requester is asking for their own stats
         if (req.decoded_email !== email) {
-            console.log('Error: Email mismatch. Decoded:', req.decoded_email, 'Requested:', email);
             return res.status(403).send({ message: 'Forbidden: Cannot access other users statistics' });
         }
 
         const { orderCollection } = await getCollections();
-        console.log('Successfully got orderCollection');
 
         const stats = await orderCollection.aggregate([
             {
@@ -654,8 +645,6 @@ app.get('/orders/stats', verifyFBToken, async (req, res) => {
                 }
             }
         ]).toArray();
-
-        console.log('Raw stats from DB:', stats);
 
         // Convert array to object with camelCase keys
         const result = {};
@@ -670,7 +659,6 @@ app.get('/orders/stats', verifyFBToken, async (req, res) => {
             result[camelCaseKey] = stat.count;
         });
 
-        console.log('Sending result:', result);
         res.send(result);
     } catch (error) {
         console.error('Error in /orders/stats GET:', error.message);
@@ -1010,6 +998,15 @@ app.patch('/orders/:id/delivery-status', verifyFBToken, verifyManager, async (re
             },
         };
 
+        // Update orderStatus to "Delivered" when deliveryStatus is "delivered"
+        if (deliveryStatus === 'delivered') {
+            update.$set.orderStatus = 'Delivered';
+        }
+        // Update orderStatus to "Shipped" when deliveryStatus is "shipped_out_for_delivery"
+        else if (deliveryStatus === 'shipped_out_for_delivery' && order.orderStatus !== 'Delivered') {
+            update.$set.orderStatus = 'Shipped';
+        }
+
         const result = await orderCollection.updateOne({ _id: new ObjectId(id) }, update);
         res.send({ modifiedCount: result.modifiedCount, message: 'Delivery status updated successfully' });
     } catch (error) {
@@ -1028,10 +1025,6 @@ app.patch('/orders/:id/withdraw-payment', verifyFBToken, verifyManager, async (r
 
         const order = await orderCollection.findOne({ _id: new ObjectId(id) });
         if (!order) return res.status(404).send({ message: 'Order not found' });
-
-        console.log('Withdraw payment request for order:', id);
-        console.log('Order deliveryStatus:', order.deliveryStatus);
-        console.log('Order paymentStatus:', order.paymentStatus);
 
         // Check if order is delivered
         if (order.deliveryStatus !== 'delivered') {
@@ -1077,6 +1070,9 @@ app.get("/users", async (req, res) => {
     try {
         const { userCollection } = await getCollections();
         const searchText = req.query.searchText;
+        const page = parseInt(req.query.page) || 1;
+        const limit = parseInt(req.query.limit) || 5;
+
         const query = {};
         if (searchText) {
             query.$or = [
@@ -1085,9 +1081,18 @@ app.get("/users", async (req, res) => {
             ];
         }
 
-        const cursor = userCollection.find(query).sort({ createdAt: -1 }).limit(5);
-        const result = await cursor.toArray();
-        res.send(result);
+        // Get total count for pagination
+        const totalCount = await userCollection.countDocuments(query);
+
+        // Get users with pagination
+        const users = await userCollection
+            .find(query)
+            .sort({ createdAt: -1 })
+            .skip((page - 1) * limit)
+            .limit(limit)
+            .toArray();
+
+        res.send({ users, totalCount });
     } catch (error) {
         console.error("Error in /users GET:", error.message);
         res.status(500).send({ message: "Internal server error" });
@@ -1344,5 +1349,74 @@ app.post('/create-checkout-session', verifyFBToken, async (req, res) => {
     } catch (error) {
         console.error('Error creating checkout session:', error);
         res.status(500).send({ message: 'Failed to create checkout session', error: error.message });
+    }
+});
+
+// =================================================================
+// PATCH /payment-success?session_id=xxx
+// Verify the Stripe session and update order payment status
+// =================================================================
+app.patch("/payment-success", verifyFBToken, async (req, res) => {
+    try {
+        if (!stripe) return res.status(500).send({ message: 'Stripe not configured on server.' });
+
+        const sessionId = req.query.session_id;
+        if (!sessionId) {
+            return res.status(400).send({ message: 'session_id query parameter is required' });
+        }
+
+        // Retrieve the session from Stripe
+        const session = await stripe.checkout.sessions.retrieve(sessionId);
+        
+        if (!session) {
+            return res.status(404).send({ message: 'Checkout session not found' });
+        }
+
+        // Get the orderId from metadata
+        const orderId = session.metadata?.orderId;
+        if (!orderId || !ObjectId.isValid(orderId)) {
+            return res.status(400).send({ message: 'Invalid or missing orderId in session metadata' });
+        }
+
+        const { orderCollection } = await getCollections();
+        const order = await orderCollection.findOne({ _id: new ObjectId(orderId) });
+
+        if (!order) {
+            return res.status(404).send({ message: 'Order not found' });
+        }
+
+        // Verify the user owns this order
+        if (order.userEmail !== req.decoded_email) {
+            return res.status(403).send({ message: 'Forbidden: Cannot update this order' });
+        }
+
+        // Check if payment was successful
+        if (session.payment_status !== 'paid') {
+            return res.status(400).send({ message: 'Payment not completed', paymentStatus: session.payment_status });
+        }
+
+        // Update order payment status
+        const updateDoc = {
+            $set: {
+                paymentStatus: 'Paid - Stripe',
+                paymentMethod: 'Stripe',
+                stripeSessionId: sessionId,
+                stripePaymentIntent: session.payment_intent,
+                paidAt: new Date(),
+            },
+        };
+
+        await orderCollection.updateOne({ _id: new ObjectId(orderId) }, updateDoc);
+
+        res.send({
+            success: true,
+            orderId: orderId,
+            transactionId: session.payment_intent,
+            message: 'Payment successful'
+        });
+
+    } catch (error) {
+        console.error('Error in /payment-success PATCH:', error.message);
+        res.status(500).send({ message: 'Internal server error', error: error.message });
     }
 });

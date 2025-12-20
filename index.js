@@ -151,6 +151,60 @@ app.get('/', (req, res) => {
     res.send('Garment Order Production Tracker is running')
 })
 
+// =================================================================
+// ADMIN API
+// =================================================================
+
+// GET /admin/orders?status=Pending -> Returns all orders with optional status filter (Admin only)
+app.get('/admin/orders', verifyFBToken, verifyAdmin, async (req, res) => {
+    try {
+        const { orderCollection } = await getCollections();
+        const status = req.query.status;
+        
+        const query = {};
+        if (status) {
+            query.orderStatus = status;
+        }
+
+        const orders = await orderCollection
+            .find(query)
+            .sort({ orderDate: -1 })
+            .toArray();
+
+        res.send(orders);
+    } catch (error) {
+        console.error('Error in /admin/orders GET:', error.message);
+        res.status(500).send({ message: 'Internal server error' });
+    }
+});
+
+// GET /admin/products?search=text -> Returns all products with optional search (Admin only)
+app.get('/admin/products', verifyFBToken, verifyAdmin, async (req, res) => {
+    try {
+        const { productCollection } = await getCollections();
+        const searchText = req.query.search;
+        
+        const query = {};
+        if (searchText) {
+            query.$or = [
+                { title: { $regex: searchText, $options: 'i' } },
+                { description: { $regex: searchText, $options: 'i' } },
+                { category: { $regex: searchText, $options: 'i' } }
+            ];
+        }
+
+        const products = await productCollection
+            .find(query)
+            .sort({ createdAt: -1 })
+            .toArray();
+
+        res.send(products);
+    } catch (error) {
+        console.error('Error in /admin/products GET:', error.message);
+        res.status(500).send({ message: 'Internal server error' });
+    }
+});
+
 
 // =================================================================
 // ⭐ PRODUCT API ⭐
@@ -204,9 +258,10 @@ app.get('/', (req, res) => {
 
 // =================================================================
 // PRODUCTS API - SPECIFIC ROUTES (Must come BEFORE /products/:id)
-// ⭐ SINGLE PRODUCT API: GET /products/:id ⭐
 // =================================================================
 
+// GET /products/:id -> Returns single product details
+app.get("/products/:id", async (req, res) => {
     try {
         const { productCollection } = await getCollections();
         const id = req.params.id;
@@ -862,29 +917,27 @@ app.patch("/users/:id/role-and-status", verifyFBToken, verifyAdmin, async (req, 
 });
 
 // =================================================================
-// FEEDBACK API
+// --- SERVER STARTUP ---
 // =================================================================
 
-// GET /feedbacks?limit=6 -> Returns all feedbacks with optional limit
-app.get('/feedbacks', async (req, res) => {
+app.listen(port, () => {
+    console.log(`Garment Order Tracker backend listening on port ${port}`)
+})
+
+connectToMongo().catch(console.dir);
+
+// =================================================================
+// Stripe Test Payment Endpoint
+// =================================================================
+app.post('/create-payment-intent', verifyFBToken, async (req, res) => {
     try {
-        const { feedbackCollection } = await getCollections();
-        const limit = parseInt(req.query.limit) || 0;
-        
-        const feedbacks = await feedbackCollection
-            .find({})
-            .sort({ createdAt: -1 })
-            .limit(limit)
-            .toArray();
+        if (!stripe) return res.status(500).send({ message: 'Stripe not configured on server.' });
 
-        res.send(feedbacks);
-    } catch (error) {
-        console.error('Error in /feedbacks GET:', error.message);
-        res.status(500).send({ message: 'Internal server error' });
-    }
-});
+        const { amount, currency = 'usd', bookingId } = req.body;
+        if (!amount || amount <= 0) {
+            return res.status(400).send({ message: 'Valid amount is required' });
+        }
 
-// GET /feedbacks/product/:id -> Returns feedbacks for a specific product
         // Stripe expects amount in cents for fiat currencies
         const amountInCents = Math.round(Number(amount) * 100);
 

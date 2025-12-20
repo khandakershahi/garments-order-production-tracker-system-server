@@ -140,6 +140,7 @@ const getCollections = async () => {
         userCollection: db.collection("users"),
         productCollection: db.collection("products"),
         orderCollection: db.collection("orders"),
+        feedbackCollection: db.collection("feedbacks"),
     };
 };
 
@@ -342,6 +343,47 @@ app.delete("/products/:id", verifyFBToken, verifyManager, async (req, res) => {
 
     } catch (error) {
         console.error("Error in /products DELETE:", error.message);
+        res.status(500).send({ message: "Internal server error" });
+    }
+});
+
+// =================================================================
+//  FEEDBACK API
+// =================================================================
+
+// GET /feedbacks?limit=6 - Get recent feedbacks for homepage
+app.get("/feedbacks", async (req, res) => {
+    try {
+        const { feedbackCollection } = await getCollections();
+        const limit = parseInt(req.query.limit) || 6;
+        
+        const feedbacks = await feedbackCollection
+            .find({})
+            .sort({ createdAt: -1 })
+            .limit(limit)
+            .toArray();
+        
+        res.send(feedbacks);
+    } catch (error) {
+        console.error("Error in /feedbacks GET:", error.message);
+        res.status(500).send({ message: "Internal server error" });
+    }
+});
+
+// POST /feedbacks - Create new feedback (authenticated users only)
+app.post("/feedbacks", verifyFBToken, async (req, res) => {
+    try {
+        const { feedbackCollection } = await getCollections();
+        const feedbackData = {
+            ...req.body,
+            userEmail: req.decoded_email,
+            createdAt: new Date()
+        };
+        
+        const result = await feedbackCollection.insertOne(feedbackData);
+        res.send(result);
+    } catch (error) {
+        console.error("Error in /feedbacks POST:", error.message);
         res.status(500).send({ message: "Internal server error" });
     }
 });

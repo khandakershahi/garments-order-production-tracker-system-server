@@ -1006,6 +1006,74 @@ app.patch("/users/:id/role-and-status", verifyFBToken, verifyAdmin, async (req, 
     }
 });
 
+// PATCH /users/:id/suspend -> Admin suspends a user with reason and feedback
+app.patch("/users/:id/suspend", verifyFBToken, verifyAdmin, async (req, res) => {
+    try {
+        const { userCollection } = await getCollections();
+        const id = req.params.id;
+
+        if (!ObjectId.isValid(id)) {
+            return res.status(400).send({ message: "Invalid ID" });
+        }
+
+        const { suspendReason, suspendFeedback } = req.body;
+
+        if (!suspendReason || !suspendFeedback) {
+            return res.status(400).send({ message: "Suspend reason and feedback are required" });
+        }
+
+        const query = { _id: new ObjectId(id) };
+
+        const updateDoc = {
+            $set: {
+                status: 'suspended',
+                suspendReason,
+                suspendFeedback,
+                suspendedAt: new Date(),
+                suspendedBy: req.decoded_email,
+            },
+        };
+
+        const result = await userCollection.updateOne(query, updateDoc);
+        res.send(result);
+    } catch (error) {
+        console.error("Error in /users/:id/suspend PATCH:", error.message);
+        res.status(500).send({ message: "Internal server error" });
+    }
+});
+
+// PATCH /users/:id/unsuspend -> Admin unsuspends a user
+app.patch("/users/:id/unsuspend", verifyFBToken, verifyAdmin, async (req, res) => {
+    try {
+        const { userCollection } = await getCollections();
+        const id = req.params.id;
+
+        if (!ObjectId.isValid(id)) {
+            return res.status(400).send({ message: "Invalid ID" });
+        }
+
+        const query = { _id: new ObjectId(id) };
+
+        const updateDoc = {
+            $set: {
+                status: 'active',
+            },
+            $unset: {
+                suspendReason: "",
+                suspendFeedback: "",
+                suspendedAt: "",
+                suspendedBy: "",
+            },
+        };
+
+        const result = await userCollection.updateOne(query, updateDoc);
+        res.send(result);
+    } catch (error) {
+        console.error("Error in /users/:id/role-and-status PATCH:", error.message);
+        res.status(500).send({ message: "Internal server error" });
+    }
+});
+
 // =================================================================
 // --- SERVER STARTUP ---
 // =================================================================

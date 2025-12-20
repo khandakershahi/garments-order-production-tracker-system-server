@@ -815,6 +815,96 @@ app.patch('/orders/:id/approve', verifyFBToken, verifyManager, async (req, res) 
     }
 });
 
+// PATCH /orders/:id/delivery-status -> Manager updates delivery status
+app.patch('/orders/:id/delivery-status', verifyFBToken, verifyManager, async (req, res) => {
+    try {
+        const { orderCollection } = await getCollections();
+        const id = req.params.id;
+        const { deliveryStatus } = req.body;
+
+        if (!ObjectId.isValid(id)) return res.status(400).send({ message: 'Invalid order id' });
+
+        if (!deliveryStatus) {
+            return res.status(400).send({ message: 'Delivery status is required' });
+        }
+
+        // Validate delivery status values
+        const validStatuses = [
+            'order_placed',
+            'cutting_completed',
+            'sewing_started',
+            'finishing',
+            'qc_checked',
+            'packed',
+            'shipped_out_for_delivery',
+            'delivered'
+        ];
+
+        if (!validStatuses.includes(deliveryStatus)) {
+            return res.status(400).send({ message: 'Invalid delivery status' });
+        }
+
+        const order = await orderCollection.findOne({ _id: new ObjectId(id) });
+        if (!order) return res.status(404).send({ message: 'Order not found' });
+
+        const update = {
+            $set: {
+                deliveryStatus,
+                deliveryStatusUpdatedAt: new Date(),
+                deliveryStatusUpdatedBy: req.decoded_email,
+            },
+        };
+
+        const result = await orderCollection.updateOne({ _id: new ObjectId(id) }, update);
+        res.send({ modifiedCount: result.modifiedCount, message: 'Delivery status updated successfully' });
+    } catch (error) {
+        console.error('Error in /orders/:id/delivery-status PATCH:', error.message);
+        res.status(500).send({ message: 'Internal server error' });
+    }
+});
+
+// PATCH /orders/:id/withdraw-payment -> Manager withdraws payment (only if delivered and paid)
+app.patch('/orders/:id/withdraw-payment', verifyFBToken, verifyManager, async (req, res) => {
+    try {
+        const { orderCollection } = await getCollections();
+        const id = req.params.id;
+
+        if (!ObjectId.isValid(id)) return res.status(400).send({ message: 'Invalid order id' });
+
+        const order = await orderCollection.findOne({ _id: new ObjectId(id) });
+        if (!order) return res.status(404).send({ message: 'Order not found' });
+
+        // Check if order is delivered
+        if (order.deliveryStatus !== 'delivered') {
+            return res.status(400).send({ message: 'Cannot withdraw payment - order is not delivered yet' });
+        }
+
+        // Check if payment is already withdrawn
+        if (order.paymentStatus === 'Withdrawn') {
+            return res.status(400).send({ message: 'Payment has already been withdrawn' });
+        }
+
+        // Check if payment is paid
+        if (order.paymentStatus !== 'Paid') {
+            return res.status(400).send({ message: 'Cannot withdraw - payment is not completed' });
+        }
+
+        const update = {
+            $set: {
+                paymentStatus: 'Withdrawn',
+                paymentWithdrawnAt: new Date(),
+                paymentWithdrawnBy: req.decoded_email,
+            },
+        };
+
+        const result = await orderCollection.updateOne({ _id: new ObjectId(id) }, update);
+        res.send({ modifiedCount: result.modifiedCount, message: 'Payment withdrawn successfully' });
+    } catch (error) {
+        console.error('Error in /orders/:id/withdraw-payment PATCH:', error.message);
+        res.status(500).send({ message: 'Internal server error' });
+    }
+});
+
 // =================================================================
 //  USER API (No Changes)
 // =================================================================

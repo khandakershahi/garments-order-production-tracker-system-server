@@ -397,6 +397,7 @@ app.get('/products', async (req, res) => {
 
         const searchText = req.query.searchText;
         const category = req.query.category;
+        const showOnHomePage = req.query.showOnHomePage;
         const page = parseInt(req.query.page) || 1;
         const limit = parseInt(req.query.limit) || 9;
 
@@ -413,6 +414,11 @@ app.get('/products', async (req, res) => {
         
         if (category) {
             query.category = category;
+        }
+
+        // Filter for homepage featured products
+        if (showOnHomePage === 'true') {
+            query.showInHeroSlider = true;
         }
 
         // Get total count for pagination

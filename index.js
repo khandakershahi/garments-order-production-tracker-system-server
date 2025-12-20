@@ -140,6 +140,7 @@ const getCollections = async () => {
         userCollection: db.collection("users"),
         productCollection: db.collection("products"),
         orderCollection: db.collection("orders"),
+        feedbackCollection: db.collection("feedbacks"),
     };
 };
 
@@ -203,9 +204,33 @@ app.get('/', (req, res) => {
 
 
 // =================================================================
-// ⭐ SINGLE PRODUCT API: GET /products/:id ⭐
+// PRODUCTS API - SPECIFIC ROUTES (Must come BEFORE /products/:id)
 // =================================================================
 
+// GET /products/hero-slider -> Returns products for hero slider
+app.get('/products/hero-slider', async (req, res) => {
+    try {
+        const { productCollection } = await getCollections();
+        
+        // Get featured products for hero slider (e.g., latest 5 products)
+        const products = await productCollection
+            .find({})
+            .sort({ createdAt: -1 })
+            .limit(5)
+            .toArray();
+
+        res.send(products);
+    } catch (error) {
+        console.error('Error in /products/hero-slider GET:', error.message);
+        res.status(500).send({ message: 'Internal server error' });
+    }
+});
+
+// =================================================================
+// PRODUCTS API - PARAMETERIZED ROUTES (Must come AFTER specific routes)
+// =================================================================
+
+// GET /products/:id -> Returns single product details
 app.get("/products/:id", async (req, res) => {
     try {
         const { productCollection } = await getCollections();
@@ -836,6 +861,65 @@ app.patch("/users/:id/role-and-status", verifyFBToken, verifyAdmin, async (req, 
     } catch (error) {
         console.error("Error in /users/:id/role-and-status PATCH:", error.message);
         res.status(500).send({ message: "Internal server error" });
+    }
+});
+
+// =================================================================
+// FEEDBACK API
+// =================================================================
+
+// GET /feedbacks?limit=6 -> Returns all feedbacks with optional limit
+app.get('/feedbacks', async (req, res) => {
+    try {
+        const { feedbackCollection } = await getCollections();
+        const limit = parseInt(req.query.limit) || 0;
+        
+        const feedbacks = await feedbackCollection
+            .find({})
+            .sort({ createdAt: -1 })
+            .limit(limit)
+            .toArray();
+
+        res.send(feedbacks);
+    } catch (error) {
+        console.error('Error in /feedbacks GET:', error.message);
+        res.status(500).send({ message: 'Internal server error' });
+    }
+});
+
+// GET /feedbacks/product/:id -> Returns feedbacks for a specific product
+app.get('/feedbacks/product/:id', async (req, res) => {
+    try {
+        const { feedbackCollection } = await getCollections();
+        const productId = req.params.id;
+
+        const feedbacks = await feedbackCollection
+            .find({ productId })
+            .sort({ createdAt: -1 })
+            .toArray();
+
+        res.send(feedbacks);
+    } catch (error) {
+        console.error('Error in /feedbacks/product/:id GET:', error.message);
+        res.status(500).send({ message: 'Internal server error' });
+    }
+});
+
+// POST /feedbacks -> Create a new feedback
+app.post('/feedbacks', verifyFBToken, async (req, res) => {
+    try {
+        const { feedbackCollection } = await getCollections();
+        const feedback = {
+            ...req.body,
+            userEmail: req.decoded_email,
+            createdAt: new Date()
+        };
+
+        const result = await feedbackCollection.insertOne(feedback);
+        res.send(result);
+    } catch (error) {
+        console.error('Error in /feedbacks POST:', error.message);
+        res.status(500).send({ message: 'Internal server error' });
     }
 });
 

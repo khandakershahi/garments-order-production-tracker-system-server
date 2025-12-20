@@ -65,8 +65,8 @@ app.use(express.json());
 const allowedOrigins = [
     'http://localhost:5173',
     'http://localhost:5174',
-    'https://garments-order-tracker.web.app',
-    'https://garments-order-tracker.firebaseapp.com',
+    'https://garments-order-tracking.web.app',
+    'https://garments-order-tracking.firebaseapp.com',
     process.env.CLIENT_URL
 ].filter(Boolean); // Remove undefined values
 

@@ -29,12 +29,12 @@ if (stripeSecret && Stripe) {
 // --- Firebase Initialization ---
 const admin = require("firebase-admin");
 
-// Use environment variable for Firebase credentials (for Vercel deployment)
-// or fallback to local file for development
+// Use base64-encoded Firebase credentials for Vercel deployment
 let serviceAccount;
-if (process.env.FIREBASE_SERVICE_ACCOUNT) {
-    // Parse the JSON string from environment variable
-    serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
+if (process.env.FB_SERVICE_KEY) {
+    // Decode base64 string from environment variable
+    const decoded = Buffer.from(process.env.FB_SERVICE_KEY, "base64").toString("utf8");
+    serviceAccount = JSON.parse(decoded);
 } else {
     // Fallback to local file for development
     serviceAccount = require("./garments-firebase-adminsdk.json");

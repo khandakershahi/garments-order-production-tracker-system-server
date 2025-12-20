@@ -140,7 +140,6 @@ const getCollections = async () => {
         userCollection: db.collection("users"),
         productCollection: db.collection("products"),
         orderCollection: db.collection("orders"),
-        feedbackCollection: db.collection("feedbacks"),
     };
 };
 
@@ -205,33 +204,9 @@ app.get('/', (req, res) => {
 
 // =================================================================
 // PRODUCTS API - SPECIFIC ROUTES (Must come BEFORE /products/:id)
+// ⭐ SINGLE PRODUCT API: GET /products/:id ⭐
 // =================================================================
 
-// GET /products/hero-slider -> Returns products for hero slider
-app.get('/products/hero-slider', async (req, res) => {
-    try {
-        const { productCollection } = await getCollections();
-        
-        // Get featured products for hero slider (e.g., latest 5 products)
-        const products = await productCollection
-            .find({})
-            .sort({ createdAt: -1 })
-            .limit(5)
-            .toArray();
-
-        res.send(products);
-    } catch (error) {
-        console.error('Error in /products/hero-slider GET:', error.message);
-        res.status(500).send({ message: 'Internal server error' });
-    }
-});
-
-// =================================================================
-// PRODUCTS API - PARAMETERIZED ROUTES (Must come AFTER specific routes)
-// =================================================================
-
-// GET /products/:id -> Returns single product details
-app.get("/products/:id", async (req, res) => {
     try {
         const { productCollection } = await getCollections();
         const id = req.params.id;
@@ -323,16 +298,38 @@ app.get('/products', async (req, res) => {
     try {
         const { productCollection } = await getCollections();
 
-        // Simple product list endpoint. Optional `limit` query param (number of items to return).
+        const searchText = req.query.searchText;
+        const category = req.query.category;
+        const page = parseInt(req.query.page) || 1;
         const limit = parseInt(req.query.limit) || 9;
 
+        // Build query object
+        const query = {};
+        
+        if (searchText) {
+            query.$or = [
+                { title: { $regex: searchText, $options: 'i' } },
+                { description: { $regex: searchText, $options: 'i' } },
+                { category: { $regex: searchText, $options: 'i' } }
+            ];
+        }
+        
+        if (category) {
+            query.category = category;
+        }
+
+        // Get total count for pagination
+        const totalCount = await productCollection.countDocuments(query);
+        
+        // Get products with pagination
         const products = await productCollection
-            .find({})
+            .find(query)
             .sort({ createdAt: -1 })
+            .skip((page - 1) * limit)
             .limit(limit)
             .toArray();
 
-        res.send({ products });
+        res.send({ products, totalCount });
     } catch (error) {
         console.error('Error in /products GET:', error.message);
         res.status(500).send({ message: 'Internal server error' });
@@ -888,65 +885,6 @@ app.get('/feedbacks', async (req, res) => {
 });
 
 // GET /feedbacks/product/:id -> Returns feedbacks for a specific product
-app.get('/feedbacks/product/:id', async (req, res) => {
-    try {
-        const { feedbackCollection } = await getCollections();
-        const productId = req.params.id;
-
-        const feedbacks = await feedbackCollection
-            .find({ productId })
-            .sort({ createdAt: -1 })
-            .toArray();
-
-        res.send(feedbacks);
-    } catch (error) {
-        console.error('Error in /feedbacks/product/:id GET:', error.message);
-        res.status(500).send({ message: 'Internal server error' });
-    }
-});
-
-// POST /feedbacks -> Create a new feedback
-app.post('/feedbacks', verifyFBToken, async (req, res) => {
-    try {
-        const { feedbackCollection } = await getCollections();
-        const feedback = {
-            ...req.body,
-            userEmail: req.decoded_email,
-            createdAt: new Date()
-        };
-
-        const result = await feedbackCollection.insertOne(feedback);
-        res.send(result);
-    } catch (error) {
-        console.error('Error in /feedbacks POST:', error.message);
-        res.status(500).send({ message: 'Internal server error' });
-    }
-});
-
-
-// =================================================================
-// --- SERVER STARTUP ---
-// =================================================================
-
-app.listen(port, () => {
-    console.log(`Garment Order Tracker backend listening on port ${port}`)
-})
-
-connectToMongo().catch(console.dir);
-
-// =================================================================
-// Stripe Test Payment Endpoint
-// =================================================================
-// POST /create-payment-intent { amount: number, currency?: string, bookingId?: string }
-app.post('/create-payment-intent', verifyFBToken, async (req, res) => {
-    try {
-        if (!stripe) return res.status(500).send({ message: 'Stripe not configured on server.' });
-
-        const { amount, currency = 'usd', bookingId } = req.body;
-        if (!amount || isNaN(amount) || amount <= 0) {
-            return res.status(400).send({ message: 'Invalid amount. Amount must be a positive number.' });
-        }
-
         // Stripe expects amount in cents for fiat currencies
         const amountInCents = Math.round(Number(amount) * 100);
 

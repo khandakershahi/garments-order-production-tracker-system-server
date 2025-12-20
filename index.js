@@ -28,7 +28,18 @@ if (stripeSecret && Stripe) {
 
 // --- Firebase Initialization ---
 const admin = require("firebase-admin");
-const serviceAccount = require("./garments-firebase-adminsdk.json");
+
+// Use environment variable for Firebase credentials (for Vercel deployment)
+// or fallback to local file for development
+let serviceAccount;
+if (process.env.FIREBASE_SERVICE_ACCOUNT) {
+    // Parse the JSON string from environment variable
+    serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
+} else {
+    // Fallback to local file for development
+    serviceAccount = require("./garments-firebase-adminsdk.json");
+}
+
 admin.initializeApp({
     credential: admin.credential.cert(serviceAccount)
 });
@@ -45,12 +56,27 @@ function generateProductId() {
 
 // middleware
 app.use(express.json());
-// Configure CORS to explicitly allow the frontend URL and enable credentials
-const clientUrl = process.env.CLIENT_URL || 'http://localhost:5173';
+// Configure CORS to allow multiple origins (production and development)
+const allowedOrigins = [
+    'http://localhost:5173',
+    'http://localhost:5174',
+    'https://garments-order-tracker.web.app',
+    'https://garments-order-tracker.firebaseapp.com',
+    process.env.CLIENT_URL
+].filter(Boolean); // Remove undefined values
+
 const corsOptions = {
-    origin: clientUrl,
+    origin: function (origin, callback) {
+        // Allow requests with no origin (like mobile apps or curl requests)
+        if (!origin) return callback(null, true);
+        
+        if (allowedOrigins.indexOf(origin) !== -1) {
+            callback(null, true);
+        } else {
+            callback(new Error('Not allowed by CORS'));
+        }
+    },
     methods: ['GET','POST','PUT','PATCH','DELETE','OPTIONS'],
-    // include any custom headers your client may send (e.g. X-Custom-Header)
     allowedHeaders: ['Content-Type','Authorization','X-Requested-With','X-Custom-Header'],
     credentials: true,
     optionsSuccessStatus: 200,

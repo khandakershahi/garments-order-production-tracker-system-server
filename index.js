@@ -141,6 +141,7 @@ const getCollections = async () => {
         productCollection: db.collection("products"),
         orderCollection: db.collection("orders"),
         feedbackCollection: db.collection("feedbacks"),
+        trackingCollection: db.collection("trackings"),
     };
 };
 
@@ -370,6 +371,24 @@ app.get("/feedbacks", async (req, res) => {
     }
 });
 
+// GET /feedbacks/product/:productId - Get feedbacks for a specific product
+app.get("/feedbacks/product/:productId", async (req, res) => {
+    try {
+        const { feedbackCollection } = await getCollections();
+        const { productId } = req.params;
+        
+        const feedbacks = await feedbackCollection
+            .find({ productId })
+            .sort({ createdAt: -1 })
+            .toArray();
+        
+        res.send(feedbacks);
+    } catch (error) {
+        console.error("Error in /feedbacks/product/:productId GET:", error.message);
+        res.status(500).send({ message: "Internal server error" });
+    }
+});
+
 // POST /feedbacks - Create new feedback (authenticated users only)
 app.post("/feedbacks", verifyFBToken, async (req, res) => {
     try {
@@ -384,6 +403,45 @@ app.post("/feedbacks", verifyFBToken, async (req, res) => {
         res.send(result);
     } catch (error) {
         console.error("Error in /feedbacks POST:", error.message);
+        res.status(500).send({ message: "Internal server error" });
+    }
+});
+
+// =================================================================
+//  TRACKING API
+// =================================================================
+
+// GET /trackings/:orderId/logs - Get tracking logs for a specific order
+app.get("/trackings/:orderId/logs", async (req, res) => {
+    try {
+        const { trackingCollection } = await getCollections();
+        const { orderId } = req.params;
+        
+        const trackingLogs = await trackingCollection
+            .find({ orderId })
+            .sort({ createdAt: 1 })
+            .toArray();
+        
+        res.send(trackingLogs);
+    } catch (error) {
+        console.error("Error in /trackings/:orderId/logs GET:", error.message);
+        res.status(500).send({ message: "Internal server error" });
+    }
+});
+
+// POST /trackings - Create new tracking log (authenticated users only)
+app.post("/trackings", verifyFBToken, async (req, res) => {
+    try {
+        const { trackingCollection } = await getCollections();
+        const trackingData = {
+            ...req.body,
+            createdAt: new Date()
+        };
+        
+        const result = await trackingCollection.insertOne(trackingData);
+        res.send(result);
+    } catch (error) {
+        console.error("Error in /trackings POST:", error.message);
         res.status(500).send({ message: "Internal server error" });
     }
 });
@@ -418,7 +476,7 @@ app.get('/products', async (req, res) => {
 
         // Filter for homepage featured products
         if (showOnHomePage === 'true') {
-            query.showInHeroSlider = true;
+            query.showOnHomePage = true;
         }
 
         // Get total count for pagination
@@ -922,19 +980,29 @@ app.patch('/orders/:id/withdraw-payment', verifyFBToken, verifyManager, async (r
         const order = await orderCollection.findOne({ _id: new ObjectId(id) });
         if (!order) return res.status(404).send({ message: 'Order not found' });
 
+        console.log('Withdraw payment request for order:', id);
+        console.log('Order deliveryStatus:', order.deliveryStatus);
+        console.log('Order paymentStatus:', order.paymentStatus);
+
         // Check if order is delivered
         if (order.deliveryStatus !== 'delivered') {
             return res.status(400).send({ message: 'Cannot withdraw payment - order is not delivered yet' });
         }
 
         // Check if payment is already withdrawn
-        if (order.paymentStatus === 'Withdrawn') {
+        if (order.paymentStatus === 'Withdrawn' || (order.paymentStatus && order.paymentStatus.includes('Withdrawn'))) {
             return res.status(400).send({ message: 'Payment has already been withdrawn' });
         }
 
-        // Check if payment is paid
-        if (order.paymentStatus !== 'Paid') {
-            return res.status(400).send({ message: 'Cannot withdraw - payment is not completed' });
+        // Check if payment is paid - support various payment status formats
+        const isPaid = order.paymentStatus === 'Paid' || 
+                       (order.paymentStatus && order.paymentStatus.includes('Paid'));
+        
+        if (!isPaid) {
+            return res.status(400).send({ 
+                message: 'Cannot withdraw - payment is not completed', 
+                currentStatus: order.paymentStatus 
+            });
         }
 
         const update = {

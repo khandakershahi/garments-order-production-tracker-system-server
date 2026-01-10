@@ -2,7 +2,9 @@ const express = require('express');
 const app = express();
 const cors = require("cors");
 const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
-require("dotenv").config();
+require('dotenv').config({
+    path: process.env.NODE_ENV === 'production' ? '.env.production' : '.env.local',
+});
 const crypto = require('crypto');
 // Stripe for test payments (optional)
 let Stripe = null;

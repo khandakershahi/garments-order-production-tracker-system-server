@@ -1,5 +1,8 @@
 node_modules
+# Environment files
 .env
+.env.local
+.env.production
 #remote firebase sdk admin
 garments-firebase-adminsdk.json
 .vercel

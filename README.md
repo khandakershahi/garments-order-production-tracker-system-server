@@ -18,8 +18,11 @@ Backend API for the Garments Order Production Tracker System. This Express.js se
 
 ### Product Management
 - CRUD operations for products
-- Search products by name
-- Filter by category
+- Advanced search and filtering:
+  - Search by product name (case-insensitive)
+  - Filter by 8 categories (Shirt, Pant, Jacket, Panjabi, Sharee, Three Piece, Kurti, Others)
+  - Filter by price range (5 brackets: under $50, $50-$100, $100-$200, $200-$500, $500+)
+  - 6 sorting options (newest, oldest, price ascending/descending, name A-Z/Z-A)
 - Pagination support
 - Image URL storage (feature image + multiple images)
 - Toggle product visibility on homepage
@@ -75,11 +78,11 @@ NODE_ENV=production
 COOKIE_SECRET=your_cookie_secret_key
 ```
 
-Also required:
-- `garments-firebase-adminsdk.json` - Firebase Admin SDK service account key file
+Als🚀 Installation & Setup
 
-## Installation & Setup
-
+1. **Clone the repository**
+   ```bash
+   git clone https://github.com/khandakershahi
 1. **Clone the repository**
    ```bash
    git clone https://github.com/yourusername/garments-order-production-tracker-system-server.git
@@ -119,9 +122,15 @@ Also required:
 - `GET /users/email/:email` - Get user by email
 - `POST /users` - Create new user
 - `PATCH /users/:id` - Update user (role, status)
+- `PATCH /users/:email` - Update user profile (displayName, photoURL)
+  - Requires authentication
+  - User can only update their own profile
 
 ### Products
-- `GET /products` - Get all products (with search, filter, pagination)
+- `GET /products` - Get all products (with search, category filter, price range, sorting, pagination)
+  - Query params: `search`, `category`, `priceRange`, `sortBy`, `page`, `limit`
+  - Price ranges: `0-50`, `50-100`, `100-200`, `200-500`, `500+`
+  - Sort options: `newest`, `oldest`, `price-low`, `price-high`, `name-az`, `name-za`
 - `GET /products/:id` - Get single product
 - `POST /products` - Create product (Manager/Admin)
 - `PUT /products/:id` - Update product (Manager/Admin)
@@ -306,18 +315,26 @@ Example test:
 curl -X GET http://localhost:5000/products
 ```
 
-## Contributing
+## 🤝 Contributing
 
 This is an educational project. Contributions, issues, and feature requests are welcome!
 
-## License
+## 📄 License
 
 This project is for educational purposes as part of Programming Hero curriculum.
 
-## Support
+## 📞 Contact
+
+- **Portfolio**: [khandakershahi.com](https://khandakershahi.com)
+- **GitHub**: [@khandakershahi](https://github.com/khandakershahi)
+- **LinkedIn**: [khandaker-shahi](https://linkedin.com/in/khandaker-shahi)
+
+## 💡 Support
 
 For issues or questions, please create an issue in the GitHub repository.
 
 ---
 
 **Note**: Ensure MongoDB connection is established before starting the server. Check console for connection success message.
+
+**Related Repository**: [Client Application](https://github.com/khandakershahi/garments-order-production-tracker-system-client)

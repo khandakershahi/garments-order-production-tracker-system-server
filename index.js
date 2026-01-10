@@ -486,6 +486,8 @@ app.get('/products', async (req, res) => {
 
         const searchText = req.query.searchText;
         const category = req.query.category;
+        const priceRange = req.query.priceRange;
+        const sortBy = req.query.sortBy;
         const showOnHomePage = req.query.showOnHomePage;
         const page = parseInt(req.query.page) || 1;
         const limit = parseInt(req.query.limit) || 9;
@@ -505,6 +507,16 @@ app.get('/products', async (req, res) => {
             query.category = category;
         }
 
+        // Price range filter
+        if (priceRange) {
+            if (priceRange === '500+') {
+                query.price = { $gte: 500 };
+            } else {
+                const [min, max] = priceRange.split('-').map(Number);
+                query.price = { $gte: min, $lte: max };
+            }
+        }
+
         // Filter for homepage featured products
         if (showOnHomePage === 'true') {
             query.showOnHomePage = true;
@@ -513,10 +525,24 @@ app.get('/products', async (req, res) => {
         // Get total count for pagination
         const totalCount = await productCollection.countDocuments(query);
         
-        // Get products with pagination
+        // Sorting options
+        let sortOptions = { createdAt: -1 }; // Default: newest first
+        if (sortBy === 'oldest') {
+            sortOptions = { createdAt: 1 };
+        } else if (sortBy === 'price-low') {
+            sortOptions = { price: 1 };
+        } else if (sortBy === 'price-high') {
+            sortOptions = { price: -1 };
+        } else if (sortBy === 'name-az') {
+            sortOptions = { title: 1 };
+        } else if (sortBy === 'name-za') {
+            sortOptions = { title: -1 };
+        }
+
+        // Get products with pagination and sorting
         const products = await productCollection
             .find(query)
-            .sort({ createdAt: -1 })
+            .sort(sortOptions)
             .skip((page - 1) * limit)
             .limit(limit)
             .toArray();
@@ -1273,6 +1299,34 @@ app.patch("/users/:id/unsuspend", verifyFBToken, verifyAdmin, async (req, res) =
         res.send(result);
     } catch (error) {
         console.error("Error in /users/:id/role-and-status PATCH:", error.message);
+        res.status(500).send({ message: "Internal server error" });
+    }
+});
+
+// PATCH /users/:email -> User updates their own profile (displayName, photoURL)
+app.patch("/users/:email", verifyFBToken, async (req, res) => {
+    try {
+        const { userCollection } = await getCollections();
+        const email = req.params.email;
+        const { displayName, photoURL } = req.body;
+
+        // Ensure the user can only update their own profile
+        if (req.decoded_email !== email) {
+            return res.status(403).send({ message: "You can only update your own profile" });
+        }
+
+        const query = { email: email };
+        const updateDoc = {
+            $set: {}
+        };
+
+        if (displayName !== undefined) updateDoc.$set.displayName = displayName;
+        if (photoURL !== undefined) updateDoc.$set.photoURL = photoURL;
+
+        const result = await userCollection.updateOne(query, updateDoc);
+        res.send(result);
+    } catch (error) {
+        console.error("Error in /users/:email PATCH:", error.message);
         res.status(500).send({ message: "Internal server error" });
     }
 });

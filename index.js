@@ -288,6 +288,28 @@ app.get('/admin/products', verifyFBToken, verifyAdmin, async (req, res) => {
 //     }
 // });
 
+// POST /products: Used by Manager to add new products (Secured)
+app.post("/products", verifyFBToken, verifyManager, async (req, res) => {
+    try {
+        const { productCollection } = await getCollections();
+        const productInfo = req.body;
+
+        // Generate and attach a unique product ID
+        const uniqueProductId = generateProductId();
+        productInfo.productId = uniqueProductId;
+
+        // Attach manager email and timestamp
+        productInfo.managerEmail = req.decoded_email;
+        productInfo.createdAt = new Date();
+
+        const result = await productCollection.insertOne(productInfo);
+        res.send({ ...result, productId: uniqueProductId });
+    } catch (error) {
+        console.error("Error in /products POST:", error.message);
+        res.status(500).send({ message: "Internal server error" });
+    }
+});
+
 
 // =================================================================
 // PRODUCTS API - SPECIFIC ROUTES (Must come BEFORE /products/:id)
